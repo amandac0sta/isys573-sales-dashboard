@@ -156,49 +156,52 @@ def kpi_card_html(label: str, value: str, color: str = "#2196F3") -> str:
 
 def build_html(df: pd.DataFrame) -> str:
     """
-    Assemble the full dashboard HTML with quarter-filter dropdown.
+    Assemble the full dashboard HTML with quarter-filter and region-filter dropdowns.
     All charts are rendered as divs; JavaScript swaps the Plotly JSON
-    when the user changes the dropdown selection.
+    when the user changes either dropdown selection.
     """
     quarters = ["Full Year", "Q1", "Q2", "Q3", "Q4"]
+    regions = ["All Regions", "East", "West", "South", "Midwest"]
     chart_data: dict[str, dict] = {}
 
     for q in quarters:
-        subset = df if q == "Full Year" else df[df["quarter"] == q]
-        if subset.empty:
-            # Placeholder for quarters with no data
-            empty = go.Figure()
-            empty.update_layout(title="No data for this period")
-            chart_data[q] = {
-                "region": empty.to_json(),
-                "monthly": empty.to_json(),
-                "category": empty.to_json(),
-                "top_products": empty.to_json(),
-                "total_revenue": "$0",
-                "total_orders": "0",
-                "avg_order": "$0",
-                "top_region": "—",
+        chart_data[q] = {}
+        q_subset = df if q == "Full Year" else df[df["quarter"] == q]
+
+        for r in regions:
+            subset = q_subset if r == "All Regions" else q_subset[q_subset["region"] == r]
+
+            if subset.empty:
+                # Placeholder for combinations with no data
+                empty = go.Figure()
+                empty.update_layout(title="No data for this period")
+                chart_data[q][r] = {
+                    "region": empty.to_json(),
+                    "monthly": empty.to_json(),
+                    "category": empty.to_json(),
+                    "top_products": empty.to_json(),
+                    "total_revenue": "$0",
+                    "total_orders": "0",
+                    "avg_order": "$0",
+                    "top_region": "—",
+                }
+                continue
+
+            total_rev = subset["revenue"].sum()
+            total_orders = len(subset)
+            avg_order = total_rev / total_orders if total_orders else 0
+            top_region = subset.groupby("region")["revenue"].sum().idxmax()
+
+            chart_data[q][r] = {
+                "region":        build_region_bar(subset).to_json(),
+                "monthly":       build_monthly_line(subset).to_json(),
+                "category":      build_category_pie(subset).to_json(),
+                "top_products":  build_top_products(subset).to_json(),
+                "total_revenue": f"${total_rev:,.0f}",
+                "total_orders":  f"{total_orders:,}",
+                "avg_order":     f"${avg_order:,.0f}",
+                "top_region":    top_region,
             }
-            continue
-
-        total_rev = subset["revenue"].sum()
-        total_orders = len(subset)
-        avg_order = total_rev / total_orders if total_orders else 0
-        top_region = (
-            subset.groupby("region")["revenue"].sum().idxmax()
-            if not subset.empty else "—"
-        )
-
-        chart_data[q] = {
-            "region":       build_region_bar(subset).to_json(),
-            "monthly":      build_monthly_line(subset).to_json(),
-            "category":     build_category_pie(subset).to_json(),
-            "top_products": build_top_products(subset).to_json(),
-            "total_revenue": f"${total_rev:,.0f}",
-            "total_orders":  f"{total_orders:,}",
-            "avg_order":     f"${avg_order:,.0f}",
-            "top_region":    top_region,
-        }
 
     # Serialize all chart data to embed in HTML
     import json
@@ -221,7 +224,7 @@ def build_html(df: pd.DataFrame) -> str:
     header p{{font-size:13px;color:#8DA9C4;margin-top:4px;}}
     .filter-bar{{background:#fff;padding:14px 32px;
                  border-bottom:1px solid #e0e6ed;
-                 display:flex;align-items:center;gap:16px;}}
+                 display:flex;align-items:center;gap:16px;flex-wrap:wrap;}}
     .filter-bar label{{font-size:14px;font-weight:600;color:#444;}}
     select{{padding:8px 14px;border:1.5px solid #cdd8e3;border-radius:6px;
             font-size:14px;background:#fff;cursor:pointer;color:#1a1a2e;}}
@@ -251,8 +254,12 @@ def build_html(df: pd.DataFrame) -> str:
 
 <div class="filter-bar">
   <label for="qFilter">📅 Filter by Quarter:</label>
-  <select id="qFilter" onchange="applyFilter(this.value)">
+  <select id="qFilter" onchange="applyFilter(this.value, document.getElementById('rFilter').value)">
     {"".join(f'<option value="{q}">{q}</option>' for q in quarters)}
+  </select>
+  <label for="rFilter">🗺️ Filter by Region:</label>
+  <select id="rFilter" onchange="applyFilter(document.getElementById('qFilter').value, this.value)">
+    {"".join(f'<option value="{r}">{r}</option>' for r in regions)}
   </select>
   <span id="filterLabel" style="font-size:13px;color:#666;margin-left:8px;"></span>
 </div>
@@ -279,8 +286,8 @@ const KPI_COLORS = ["#2196F3","#4CAF50","#FF9800","#9C27B0"];
 const KPI_LABELS = ["Total Revenue","Transactions","Avg Transaction","Top Region"];
 const KPI_KEYS   = ["total_revenue","total_orders","avg_order","top_region"];
 
-function applyFilter(quarter) {{
-  const d = DATA[quarter];
+function applyFilter(quarter, region) {{
+  const d = DATA[quarter][region];
 
   // KPI cards
   const kpiRow = document.getElementById("kpiRow");
@@ -299,12 +306,14 @@ function applyFilter(quarter) {{
   Plotly.react("chartCategory",    JSON.parse(d.category).data,    JSON.parse(d.category).layout,    {{responsive:true}});
   Plotly.react("chartTopProducts", JSON.parse(d.top_products).data, JSON.parse(d.top_products).layout, {{responsive:true}});
 
+  const quarterLabel = quarter === "Full Year" ? "all 2024" : `${{quarter}} 2024`;
+  const regionLabel  = region  === "All Regions" ? "all regions" : region;
   document.getElementById("filterLabel").textContent =
-    quarter === "Full Year" ? "Showing all 2024 data" : `Showing ${{quarter}} 2024 only`;
+    `Showing ${{quarterLabel}} · ${{regionLabel}}`;
 }}
 
 // Initialise on load
-applyFilter("Full Year");
+applyFilter("Full Year", "All Regions");
 </script>
 </body>
 </html>"""
