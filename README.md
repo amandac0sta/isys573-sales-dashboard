@@ -29,8 +29,11 @@ open dashboard.html   # macOS
 | Category Breakdown | Donut pie — 6 product categories |
 | Top 10 Products | Horizontal bar — best sellers by revenue |
 | **Quarter Filter** | Dropdown — Full Year / Q1 / Q2 / Q3 / Q4 |
+| **Region Filter** | Dropdown — All Regions / East / West / South / Midwest |
 
 KPI cards show: Total Revenue · Transactions · Avg Transaction · Top Region
+
+> **Implementation details:** See [`docs/region_filter.md`](docs/region_filter.md) for a full explanation of how the region filter works, which components it updates, and the business rationale behind the feature.
 
 ## Running Tests
 
